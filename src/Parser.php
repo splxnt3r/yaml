@@ -20,6 +20,9 @@ use Splxnter\Yaml\Exception\ParseException;
  */
 class Parser
 {
+    /**
+     * @var Parser|null
+     */
     private static ?Parser $instance = null;
 
     /**
@@ -33,34 +36,37 @@ class Parser
     private array $tokens = [];
 
     /**
-     * @var array<int, string>
+     * @var array<int|string, string>
      */
     private array $blocks = [];
 
+    /**
+     * @var int
+     */
     private int $currentIndentation = 0;
 
     /**
      * @param int $indentation
-     */
-    private function __construct(private readonly int $indentation = 2)
-    {
-        if ($this->indentation < 1) {
-            throw new InvalidArgumentException('Indentation must be greater than zero');
-        }
-    }
-
-    /**
-     * @param int $indentation
      *
-     * @return Parser|null
+     * @return Parser
      */
-    public static function getInstance(int $indentation = 2): ?Parser
+    public static function getInstance(int $indentation = 2): Parser
     {
         return self::$instance ??= new self($indentation);
     }
 
     /**
-     * @return array
+     * @param int $indent
+     */
+    private function __construct(private readonly int $indent = 2)
+    {
+        if ($this->indent < 1) {
+            throw new InvalidArgumentException('Indentation must be greater than zero');
+        }
+    }
+
+    /**
+     * @return Token[]
      */
     public function getTokens(): array
     {
@@ -80,10 +86,14 @@ class Parser
             throw new ParseException(sprintf('File "%s" cannot be read.', $filename));
         }
 
+        if (false === ($contents = file_get_contents($filename))) {
+            return $this;
+        }
+
         $this->filename = $filename;
 
         try {
-            return $this->parse(file_get_contents($filename));
+            return $this->parse($contents);
         } finally {
             $this->filename = null;
         }
@@ -109,7 +119,10 @@ class Parser
             $lineNumber = $i + 1;
             $length     = strlen($line);
 
-            if ($length > 0 && !preg_match('/^[a-z_' . Token::COMMENT . Token::DASH . ' ]/', $line)) {
+            if (
+                $length > 0 &&
+                !preg_match('/^[a-z0-9_' . Token::COMMENT . preg_quote(Token::DASH, '/') . ' ]/', $line)
+            ) {
                 throw new ParseException(
                     sprintf('Unexpected character "%s"', substr($line, 0, 1)),
                     $lineNumber,
@@ -117,19 +130,33 @@ class Parser
                 );
             }
 
-            /** @var ?Token $lastToken */
-            $lastToken = $this->tokens[array_key_last($this->tokens)] ?? null;
-            $token     = $this->createToken($line);
+            $token  = $this->createToken($line);
+            $indent = $token->getIndent();
 
-            if ($token->getPrefix() === Token::DASH && $lastToken->getPrefix() === Token::DASH) {
-                if ($token->getIndent() !== $lastToken->getIndent()) {
-                    throw new ParseException('Invalid list item indent', $lineNumber, $this->filename);
+            if (!$unexpectedIndent = $indent % $this->indent !== 0) {
+                $lastToken = $this->findLastBlockToken();
+
+                if ($token->isSequence()) {
+                    $lastToken ??= $this->findLastToken();
+
+                    if (!$lastToken || $indent - $this->indent !== $lastToken->getIndent()) {
+                        throw new ParseException('Invalid list item indent', $lineNumber, $this->filename);
+                    }
+                } else {
+                    if (
+                        $indent > 0 &&
+                        (!$lastToken || ($lastToken->isBlock() && $indent !== $lastToken->getIndent() + $this->indent))
+                    ) {
+                        $unexpectedIndent = true;
+                    }
                 }
-            } elseif ($token->getIndent() % $this->indentation !== 0) {
-                throw new ParseException('Unexpected indent', $lineNumber, $this->filename);
             }
 
-            $this->currentIndentation = $token->getIndent();
+            if ($unexpectedIndent) {
+                throw new ParseException('Unexpected indentation', $lineNumber, $this->filename);
+            }
+
+            $this->currentIndentation = $indent;
 
             $line = trim($line);
 
@@ -149,6 +176,7 @@ class Parser
             if (!$token->getPrefix() && str_contains($line, Token::COLON)) {
                 $this->rewindToParentBlock($token->getIndent());
 
+                /** @var string $name */
                 [$name, $value] = $this->parseBlock($line, $lineNumber);
 
                 $token->setName($name);
@@ -178,13 +206,7 @@ class Parser
         }
 
         while (count($this->blocks) > 0) {
-            /** @var ?Token $last */
-            $last = array_find(
-                $this->tokens,
-                fn(Token $token) => $token->getName() === ($this->blocks[array_key_last($this->blocks)] ?? null)
-            );
-
-            if ($last?->getIndent() < $indent) {
+            if ($this->findLastBlockToken()?->getIndent() < $indent) {
                 break;
             }
 
@@ -196,38 +218,10 @@ class Parser
      * @param string $value
      * @param int    $lineNumber
      *
-     * @return array
-     * @throws Exception
-     */
-    private function parseBlock(string $value, int $lineNumber): array
-    {
-        [$name, $value] = array_map('trim', explode(Token::COLON, $value, 2));
-
-        return [$name, $this->parseValue($value, $lineNumber)];
-    }
-
-    /**
-     * @param string $line
-     * @param int    $lineNumber
-     *
      * @return mixed
      * @throws Exception
      */
-    private function parseSequence(string $line, int $lineNumber): mixed
-    {
-        $value = trim($line, Token::DASH);
-
-        return $this->parseValue($value, $lineNumber);
-    }
-
-    /**
-     * @param string|null $value
-     * @param int         $lineNumber
-     *
-     * @return mixed
-     * @throws Exception
-     */
-    private function parseValue(?string $value, int $lineNumber): mixed
+    private function parseValue(string $value, int $lineNumber): mixed
     {
         $value = trim($value);
 
@@ -254,7 +248,8 @@ class Parser
                 throw new ParseException('Missing closing bracket', $lineNumber, $this->filename);
             }
 
-            $value  = trim($value, ' ' . Token::SQUARE_BRACKETS);
+            $value = trim($value, ' ' . Token::SQUARE_BRACKETS);
+            /** @var list<string> $values */
             $values = $this->hasStartOfObject($value)
                 ? preg_split('/' . Token::COMMA . '(?=\s+?' . Token::CURLY_BRACKETS[0] . ')/', $value)
                 : explode(Token::COMMA, $value);
@@ -290,6 +285,34 @@ class Parser
     }
 
     /**
+     * @param string $value
+     * @param int    $lineNumber
+     *
+     * @return array<int, mixed>
+     * @throws Exception
+     */
+    private function parseBlock(string $value, int $lineNumber): array
+    {
+        [$name, $value] = array_map('trim', explode(Token::COLON, $value, 2));
+
+        return [$name, $this->parseValue($value, $lineNumber)];
+    }
+
+    /**
+     * @param string $line
+     * @param int    $lineNumber
+     *
+     * @return mixed
+     * @throws Exception
+     */
+    private function parseSequence(string $line, int $lineNumber): mixed
+    {
+        $value = trim($line, Token::DASH);
+
+        return $this->parseValue($value, $lineNumber);
+    }
+
+    /**
      * @param string $line
      *
      * @return Token
@@ -298,12 +321,34 @@ class Parser
     {
         $lengthBefore = strlen($line);
         $line         = trim($line);
-        $lengthAfter  = strlen($line);
+        $indent       = $lengthBefore - strlen($line);
+        $prefix       = str_starts_with($line, Token::DASH) ? Token::DASH : null;
 
-        $token = new Token();
-        $token->setPrefix(str_starts_with($line, Token::DASH) ? Token::DASH : null);
+        return $this->tokens[] = Token::new($indent, $prefix);
+    }
 
-        return $this->tokens[] = $token->setIndent($lengthBefore - $lengthAfter);
+    /**
+     * @return Token|null
+     */
+    private function findLastBlockToken(): ?Token
+    {
+        return array_find($this->tokens, fn(Token $token) => $token->getName() === $this->findLastBlock());
+    }
+
+    /**
+     * @return string|null
+     */
+    private function findLastBlock(): ?string
+    {
+        return $this->blocks[array_key_last($this->blocks)] ?? null;
+    }
+
+    /**
+     * @return Token|null
+     */
+    private function findLastToken(): ?Token
+    {
+        return $this->tokens[array_key_last($this->tokens)] ?? null;
     }
 
     /**

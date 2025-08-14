@@ -43,9 +43,9 @@ class Yaml
     }
 
     /**
-     * @param string $filePath
-     * @param array  $tokens
-     * @param int    $flags
+     * @param string  $filePath
+     * @param Token[] $tokens
+     * @param int     $flags
      *
      * @return false|int
      */
@@ -55,13 +55,13 @@ class Yaml
     }
 
     /**
-     * @param array $tokens
-     * @param int   $flags
+     * @param Token[] $tokens
+     * @param int     $flags
      *
      * @return string
      */
     public static function dump(array $tokens, int $flags = 0): string
     {
-        return new Dumper()->dump($tokens, $flags);
+        return Dumper::getInstance()->dump($tokens, $flags);
     }
 }

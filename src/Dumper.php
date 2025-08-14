@@ -20,6 +20,23 @@ class Dumper
     public const int DUMP_COMMENTS    = 2;
 
     /**
+     * @var Dumper|null
+     */
+    private static ?Dumper $instance = null;
+
+    /**
+     * @return Dumper
+     */
+    public static function getInstance(): Dumper
+    {
+        return self::$instance ??= new self();
+    }
+
+    private function __construct()
+    {
+    }
+
+    /**
      * @param Token[] $tokens
      * @param int     $flags
      *
@@ -68,8 +85,8 @@ class Dumper
     private function dumpValue(mixed $value): string
     {
         if (is_string($value)) {
-            return preg_match('/\W/', $value)
-                ? sprintf("'%s'", str_replace("'", "\'", $value))
+            return preg_match('/^\s|\s$|[:#]|[{}\[\],&*?]|[|>]|[!%@$`]/', $value)
+                ? sprintf("'%s'", $value)
                 : $value;
         }
 

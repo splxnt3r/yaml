@@ -18,7 +18,7 @@ class Token
 {
     public const string COMMENT         = '#';
     public const string QUOTES          = '\'"';
-    public const string DASH            = '\-';
+    public const string DASH            = '-';
     public const string SQUARE_BRACKETS = '[]';
     public const string CURLY_BRACKETS  = '{}';
     public const string COLON           = ':';
@@ -175,5 +175,15 @@ class Token
     public function isEmpty(): bool
     {
         return !$this->name && !$this->value;
+    }
+
+    public function isBlock(): bool
+    {
+        return !empty($this->name);
+    }
+
+    public function isSequence(): bool
+    {
+        return $this->prefix === self::DASH;
     }
 }
