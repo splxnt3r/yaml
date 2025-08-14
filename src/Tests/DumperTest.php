@@ -37,4 +37,48 @@ class DumperTest extends TestCase
             Token::new(4, name: 'class', value: 'App\Routing\Router'),
         ]));
     }
+
+    public function testByDefaultCommentsAreOmmited(): void
+    {
+        $this->assertSame('', Dumper::getInstance()->dump([
+            Token::new(comment: 'test comment'),
+        ]));
+    }
+
+    public function testByDefaultEmptyLinesAreOmmited(): void
+    {
+        $this->assertSame('', Dumper::getInstance()->dump([
+            Token::new(),
+        ]));
+    }
+
+    public function testByDefaultCommentsAndEmptyLinesAreOmmited(): void
+    {
+        $this->assertSame('', Dumper::getInstance()->dump([
+            Token::new(comment: 'test comment'),
+            Token::new(),
+        ]));
+    }
+
+    public function testCommentsArePreservedCorrectly(): void
+    {
+        $this->assertSame("# test comment\r\n", Dumper::getInstance()->dump([
+            Token::new(comment: 'test comment'),
+        ], Dumper::DUMP_COMMENTS));
+    }
+
+    public function testEmptyLinesArePreservedCorrectly(): void
+    {
+        $this->assertSame("\r\n", Dumper::getInstance()->dump([
+            Token::new(),
+        ], Dumper::DUMP_EMPTY_LINES));
+    }
+
+    public function testEmptyLinesAndCommentsArePreservedCorrectly(): void
+    {
+        $this->assertSame("# test comment\r\n\r\n", Dumper::getInstance()->dump([
+            Token::new(comment: 'test comment'),
+            Token::new(),
+        ], Dumper::DUMP_EMPTY_LINES | Dumper::DUMP_COMMENTS));
+    }
 }
