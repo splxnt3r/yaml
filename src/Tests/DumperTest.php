@@ -62,23 +62,29 @@ class DumperTest extends TestCase
 
     public function testCommentsArePreservedCorrectly(): void
     {
-        $this->assertSame("# test comment\r\n", Dumper::getInstance()->dump([
+        $contents = Dumper::getInstance()->dump([
             Token::new(comment: 'test comment'),
-        ], Dumper::DUMP_COMMENTS));
+        ], Dumper::DUMP_COMMENTS);
+
+        $this->assertSame('# test comment' . PHP_EOL, $contents);
     }
 
     public function testEmptyLinesArePreservedCorrectly(): void
     {
-        $this->assertSame("\r\n", Dumper::getInstance()->dump([
+        $contents = Dumper::getInstance()->dump([
             Token::new(),
-        ], Dumper::DUMP_EMPTY_LINES));
+        ], Dumper::DUMP_EMPTY_LINES);
+
+        $this->assertSame(PHP_EOL, $contents);
     }
 
     public function testEmptyLinesAndCommentsArePreservedCorrectly(): void
     {
-        $this->assertSame("# test comment\r\n\r\n", Dumper::getInstance()->dump([
+        $contents = Dumper::getInstance()->dump([
             Token::new(comment: 'test comment'),
             Token::new(),
-        ], Dumper::DUMP_EMPTY_LINES | Dumper::DUMP_COMMENTS));
+        ], Dumper::DUMP_EMPTY_LINES | Dumper::DUMP_COMMENTS);
+
+        $this->assertSame('# test comment' . str_repeat(PHP_EOL, 2), $contents);
     }
 }
